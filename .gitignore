@@ -1,0 +1,35 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+*.log
+
+## Database
+*.db
+*.db-shm
+*.db-wal
+
+## App Settings (contains sensitive data)
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
+
+## User Secrets
+secrets.json
+
+## IDE
+.vs/
+.idea/
+*.swp
+*.swo
+*~
+
+## OS
+.DS_Store
+Thumbs.db
+
