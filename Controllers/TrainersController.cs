@@ -20,7 +20,9 @@ public class TrainersController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Trainer>>> GetTrainers()
     {
-        return await _context.Trainers.ToListAsync();
+        return await _context.Trainers
+            .Include(t => t.Employee)
+            .ToListAsync();
     }
 }
 

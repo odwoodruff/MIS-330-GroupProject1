@@ -25,71 +25,40 @@ public class AuthController : ControllerBase
         try
         {
             // Validate required fields
-            if (string.IsNullOrWhiteSpace(request.Username) || 
-                string.IsNullOrWhiteSpace(request.Email) || 
+            if (string.IsNullOrWhiteSpace(request.CustEmail) || 
                 string.IsNullOrWhiteSpace(request.Password))
             {
-                return BadRequest(new { message = "Username, email, and password are required" });
+                return BadRequest(new { message = "Email and password are required" });
             }
 
-            // Check if username or email already exists
-            if (await _context.Customers.AnyAsync(u => u.Username == request.Username || u.Email == request.Email))
+            // Check if email already exists
+            if (await _context.Customers.AnyAsync(u => u.CustEmail == request.CustEmail))
             {
-                return BadRequest(new { message = "Username or email already exists" });
+                return BadRequest(new { message = "Email already exists" });
             }
 
             var customer = new Customer
             {
-                Username = request.Username,
-                Email = request.Email,
-                PasswordHash = HashPassword(request.Password),
-                Role = request.Role ?? "Customer",
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                Phone = request.Phone,
-                CreatedAt = DateTime.Now
+                CustFName = request.CustFName,
+                CustLName = request.CustLName,
+                CustEmail = request.CustEmail,
+                CustPhoneNum = request.CustPhoneNum,
+                Address = request.Address ?? string.Empty,
+                Password = request.Password // Store plain password to match existing database schema
             };
 
             _context.Customers.Add(customer);
             await _context.SaveChangesAsync();
 
-            // Create Trainer if Trainer role
-            if (customer.Role == "Trainer")
-            {
-                var trainer = new Trainer
-                {
-                    FirstName = customer.FirstName,
-                    LastName = customer.LastName,
-                    Email = customer.Email,
-                    Phone = customer.Phone,
-                    Specialization = request.Specialization ?? "General Training"
-                };
-                _context.Trainers.Add(trainer);
-                await _context.SaveChangesAsync();
-
-                customer.TrainerId = trainer.Id;
-                await _context.SaveChangesAsync();
-            }
-
-            // Create Employee if Employee role
-            if (customer.Role == "Employee")
-            {
-                var employee = new Employee
-                {
-                    FirstName = customer.FirstName,
-                    LastName = customer.LastName,
-                    Email = customer.Email,
-                    Phone = customer.Phone,
-                    Position = request.Specialization ?? "Staff"
-                };
-                _context.Employees.Add(employee);
-                await _context.SaveChangesAsync();
-
-                customer.EmployeeId = employee.Id;
-                await _context.SaveChangesAsync();
-            }
-
-            return Ok(new { user = new { customer.Id, customer.Username, customer.Email, customer.Role, customer.FirstName, customer.LastName, TrainerId = customer.TrainerId, EmployeeId = customer.EmployeeId } });
+            return Ok(new { 
+                user = new { 
+                    customer.CustomerId, 
+                    customer.CustEmail, 
+                    customer.CustFName, 
+                    customer.CustLName,
+                    Role = "Customer"
+                } 
+            });
         }
         catch (Exception ex)
         {
@@ -101,29 +70,25 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult> Login(LoginRequest request)
     {
+        // Login using custEmail and password
         var customer = await _context.Customers
-            .Include(u => u.Trainer)
-            .Include(u => u.Employee)
-            .FirstOrDefaultAsync(u => u.Username == request.Username || u.Email == request.Username);
+            .FirstOrDefaultAsync(u => u.CustEmail == request.Username);
 
-        if (customer == null || !VerifyPassword(request.Password, customer.PasswordHash))
+        if (customer == null || customer.Password != request.Password)
         {
-            return Unauthorized(new { message = "Invalid username or password" });
+            return Unauthorized(new { message = "Invalid email or password" });
         }
 
         return Ok(new
         {
             user = new
             {
-                customer.Id,
-                customer.Username,
-                customer.Email,
-                customer.Role,
-                customer.FirstName,
-                customer.LastName,
-                customer.Phone,
-                TrainerId = customer.TrainerId,
-                EmployeeId = customer.EmployeeId
+                customer.CustomerId,
+                customer.CustEmail,
+                customer.CustFName,
+                customer.CustLName,
+                customer.CustPhoneNum,
+                Role = "Customer"
             }
         });
     }
@@ -133,9 +98,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<Customer>> GetProfile(int id)
     {
         var customer = await _context.Customers
-            .Include(u => u.Trainer)
-            .Include(u => u.Employee)
-            .FirstOrDefaultAsync(u => u.Id == id);
+            .FirstOrDefaultAsync(u => u.CustomerId == id);
 
         if (customer == null)
         {
@@ -146,16 +109,13 @@ public class AuthController : ControllerBase
         {
             user = new
             {
-                customer.Id,
-                customer.Username,
-                customer.Email,
-                customer.Role,
-                customer.FirstName,
-                customer.LastName,
-                customer.Phone,
-                customer.CreatedAt,
-                TrainerId = customer.TrainerId,
-                EmployeeId = customer.EmployeeId
+                customer.CustomerId,
+                customer.CustEmail,
+                customer.CustFName,
+                customer.CustLName,
+                customer.CustPhoneNum,
+                customer.Address,
+                Role = "Customer"
             }
         });
     }
@@ -170,14 +130,15 @@ public class AuthController : ControllerBase
             return NotFound();
         }
 
-        customer.FirstName = request.FirstName ?? customer.FirstName;
-        customer.LastName = request.LastName ?? customer.LastName;
-        customer.Email = request.Email ?? customer.Email;
-        customer.Phone = request.Phone ?? customer.Phone;
+        customer.CustFName = request.CustFName ?? customer.CustFName;
+        customer.CustLName = request.CustLName ?? customer.CustLName;
+        customer.CustEmail = request.CustEmail ?? customer.CustEmail;
+        customer.CustPhoneNum = request.CustPhoneNum ?? customer.CustPhoneNum;
+        customer.Address = request.Address ?? customer.Address;
 
         if (!string.IsNullOrEmpty(request.Password))
         {
-            customer.PasswordHash = HashPassword(request.Password);
+            customer.Password = request.Password; // Store plain password to match database schema
         }
 
         await _context.SaveChangesAsync();
@@ -200,27 +161,26 @@ public class AuthController : ControllerBase
 
 public class RegisterRequest
 {
-    public string Username { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
+    public string CustFName { get; set; } = string.Empty;
+    public string CustLName { get; set; } = string.Empty;
+    public string CustEmail { get; set; } = string.Empty;
+    public string CustPhoneNum { get; set; } = string.Empty;
+    public string? Address { get; set; }
     public string Password { get; set; } = string.Empty;
-    public string? Role { get; set; }
-    public string FirstName { get; set; } = string.Empty;
-    public string LastName { get; set; } = string.Empty;
-    public string Phone { get; set; } = string.Empty;
-    public string? Specialization { get; set; }
 }
 
 public class LoginRequest
 {
-    public string Username { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty; // This will be custEmail
     public string Password { get; set; } = string.Empty;
 }
 
 public class UpdateProfileRequest
 {
-    public string? FirstName { get; set; }
-    public string? LastName { get; set; }
-    public string? Email { get; set; }
-    public string? Phone { get; set; }
+    public string? CustFName { get; set; }
+    public string? CustLName { get; set; }
+    public string? CustEmail { get; set; }
+    public string? CustPhoneNum { get; set; }
+    public string? Address { get; set; }
     public string? Password { get; set; }
 }

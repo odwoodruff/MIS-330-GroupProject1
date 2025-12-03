@@ -61,12 +61,17 @@ async function handleLogin(event) {
         if (response.ok) {
             const data = await response.json();
             currentUser = data.user;
+            // Map to expected property names for compatibility
+            currentUser.id = currentUser.CustomerId || currentUser.customerId;
+            currentUser.firstName = currentUser.CustFName || currentUser.custFName;
+            currentUser.lastName = currentUser.CustLName || currentUser.custLName;
+            currentUser.email = currentUser.CustEmail || currentUser.custEmail;
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
             showMainApp();
             closeAuthModal();
             showMessage('Login successful!', 'success');
         } else {
-            showMessage('Invalid username or password', 'error');
+            showMessage('Invalid email or password', 'error');
         }
     } catch (error) {
         showMessage('Login failed. Please try again.', 'error');
@@ -80,20 +85,23 @@ async function handleRegister(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                username: document.getElementById('reg-username').value,
-                email: document.getElementById('reg-email').value,
-                password: document.getElementById('reg-password').value,
-                firstName: document.getElementById('reg-firstname').value,
-                lastName: document.getElementById('reg-lastname').value,
-                phone: document.getElementById('reg-phone').value,
-                role: document.getElementById('reg-role').value,
-                specialization: document.getElementById('reg-specialization').value
+                custFName: document.getElementById('reg-firstname').value,
+                custLName: document.getElementById('reg-lastname').value,
+                custEmail: document.getElementById('reg-email').value,
+                custPhoneNum: document.getElementById('reg-phone').value,
+                address: document.getElementById('reg-address').value,
+                password: document.getElementById('reg-password').value
             })
         });
 
         if (response.ok) {
             const data = await response.json();
             currentUser = data.user;
+            // Map to expected property names for compatibility
+            currentUser.id = currentUser.CustomerId || currentUser.customerId;
+            currentUser.firstName = currentUser.CustFName || currentUser.custFName;
+            currentUser.lastName = currentUser.CustLName || currentUser.custLName;
+            currentUser.email = currentUser.CustEmail || currentUser.custEmail;
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
             showMainApp();
             closeAuthModal();
@@ -122,14 +130,25 @@ function logout() {
     showMessage('Logged out successfully', 'success');
 }
 
-function showMainApp() {
+async function showMainApp() {
     document.getElementById('auth-modal').style.display = 'none';
     document.getElementById('main-tabs').style.display = 'flex';
     document.getElementById('user-info').style.display = 'block';
-    document.getElementById('user-name').textContent = `${currentUser.firstName} ${currentUser.lastName} (${currentUser.role})`;
+    const firstName = currentUser.firstName || currentUser.CustFName || currentUser.custFName || '';
+    const lastName = currentUser.lastName || currentUser.CustLName || currentUser.custLName || '';
+    document.getElementById('user-name').textContent = `${firstName} ${lastName} (Customer)`;
     
-    if (currentUser.role === 'Trainer') {
-        document.getElementById('trainer-tab').style.display = 'block';
+    // Check if user is a trainer
+    try {
+        const trainersResponse = await fetch(`${API_BASE_URL}/trainers`);
+        const trainers = await trainersResponse.json();
+        const trainer = trainers.find(t => (t.employeeId || t.EmployeeId) === (currentUser.employeeId || currentUser.EmployeeId || currentUser.id));
+        if (trainer) {
+            document.getElementById('trainer-tab').style.display = 'block';
+            currentUser.employeeId = trainer.employeeId || trainer.EmployeeId;
+        }
+    } catch (error) {
+        console.error('Error checking trainer status:', error);
     }
     
     showTab('classes');
@@ -189,13 +208,16 @@ async function loadSessions() {
         const sessionSelect = document.getElementById('session-type');
         if (sessionSelect) {
             sessionSelect.innerHTML = '<option value="">Select a session...</option>';
-            sessions.forEach(session => {
-                const option = document.createElement('option');
-                option.value = session.id;
-                option.textContent = `${session.type} - $${session.price} (${session.durationMinutes} min)`;
-                option.dataset.session = JSON.stringify(session);
-                sessionSelect.appendChild(option);
-            });
+        sessions.forEach(session => {
+            const option = document.createElement('option');
+            option.value = session.classId || session.ClassId;
+            const duration = session.endTime && session.startTime 
+                ? Math.round((new Date('2000-01-01T' + session.endTime) - new Date('2000-01-01T' + session.startTime)) / 60000)
+                : 60;
+            option.textContent = `${session.className || session.ClassName} - $${session.price} (${duration} min)`;
+            option.dataset.session = JSON.stringify(session);
+            sessionSelect.appendChild(option);
+        });
         }
     } catch (error) {
         console.error('Error loading sessions:', error);
@@ -230,16 +252,33 @@ async function filterClasses() {
                 return;
             }
             
-            classesList.innerHTML = sessions.map(session => `
+            classesList.innerHTML = sessions.map(session => {
+                const trainer = session.trainer?.employee || session.Trainer?.Employee || {};
+                const className = session.className || session.ClassName;
+                const description = session.description || session.Description;
+                const price = session.price || session.Price;
+                const startTime = session.startTime || session.StartTime;
+                const endTime = session.endTime || session.EndTime;
+                const duration = startTime && endTime 
+                    ? Math.round((new Date('2000-01-01T' + endTime) - new Date('2000-01-01T' + startTime)) / 60000)
+                    : 60;
+                const classId = session.classId || session.ClassId;
+                
+                return `
                 <div class="class-card">
-                    <h3>${session.type}</h3>
-                    <p><strong>Trainer:</strong> ${session.trainer.firstName} ${session.trainer.lastName}</p>
-                    <p><strong>Description:</strong> ${session.description}</p>
-                    <p><strong>Price:</strong> $${session.price}</p>
-                    <p><strong>Duration:</strong> ${session.durationMinutes} minutes</p>
-                    <button onclick="bookSession(${session.id})" class="btn-primary" style="margin-top: 10px;">Book Now</button>
+                    <h3>${className}</h3>
+                    <p><strong>Trainer:</strong> ${trainer.empFName || trainer.EmpFName || ''} ${trainer.empLName || trainer.EmpLName || ''}</p>
+                    <p><strong>Description:</strong> ${description}</p>
+                    <p><strong>Type:</strong> ${session.classType || session.ClassType}</p>
+                    <p><strong>Difficulty:</strong> ${session.difficultyLevel || session.DifficultyLevel}</p>
+                    <p><strong>Date:</strong> ${new Date(session.date || session.Date).toLocaleDateString()}</p>
+                    <p><strong>Time:</strong> ${startTime} - ${endTime}</p>
+                    <p><strong>Price:</strong> $${price}</p>
+                    <p><strong>Duration:</strong> ${duration} minutes</p>
+                    <button onclick="bookSession(${classId})" class="btn-primary" style="margin-top: 10px;">Book Now</button>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     } catch (error) {
         console.error('Error filtering classes:', error);
@@ -253,10 +292,14 @@ async function loadTrainers() {
         
         const trainerSelect = document.getElementById('class-trainer');
         if (trainerSelect) {
+            trainerSelect.innerHTML = '<option value="">All Trainers</option>';
             trainers.forEach(trainer => {
                 const option = document.createElement('option');
-                option.value = trainer.id;
-                option.textContent = `${trainer.firstName} ${trainer.lastName}`;
+                const employee = trainer.employee || trainer.Employee || {};
+                option.value = trainer.employeeId || trainer.EmployeeId;
+                const firstName = employee.empFName || employee.EmpFName || '';
+                const lastName = employee.empLName || employee.EmpLName || '';
+                option.textContent = `${firstName} ${lastName}`;
                 trainerSelect.appendChild(option);
             });
         }
@@ -274,11 +317,17 @@ function updateSessionDetails() {
     
     if (selectedOption.value) {
         const session = JSON.parse(selectedOption.dataset.session);
+        const trainer = session.trainer?.employee || session.Trainer?.Employee || {};
+        const duration = session.endTime && session.startTime 
+            ? Math.round((new Date('2000-01-01T' + session.endTime) - new Date('2000-01-01T' + session.startTime)) / 60000)
+            : 60;
         sessionInfo.innerHTML = `
-            <p><strong>Trainer:</strong> ${session.trainer.firstName} ${session.trainer.lastName}</p>
-            <p><strong>Description:</strong> ${session.description}</p>
-            <p><strong>Price:</strong> $${session.price}</p>
-            <p><strong>Duration:</strong> ${session.durationMinutes} minutes</p>
+            <p><strong>Trainer:</strong> ${trainer.empFName || trainer.EmpFName || ''} ${trainer.empLName || trainer.EmpLName || ''}</p>
+            <p><strong>Description:</strong> ${session.description || session.Description}</p>
+            <p><strong>Price:</strong> $${session.price || session.Price}</p>
+            <p><strong>Duration:</strong> ${duration} minutes</p>
+            <p><strong>Date:</strong> ${new Date(session.date || session.Date).toLocaleDateString()}</p>
+            <p><strong>Time:</strong> ${session.startTime || session.StartTime} - ${session.endTime || session.EndTime}</p>
         `;
         sessionInfo.classList.add('active');
     } else {
@@ -304,19 +353,20 @@ document.getElementById('booking-form')?.addEventListener('submit', async (e) =>
     try {
         // Create pet if needed
         const petData = {
-            name: document.getElementById('pet-name').value,
+            petFullName: document.getElementById('pet-name').value,
             species: document.getElementById('pet-species').value,
             breed: document.getElementById('pet-breed').value || 'Unknown',
-            age: parseInt(document.getElementById('pet-age').value) || 0,
+            gender: 'M', // Default, could add to form
+            birthDate: new Date().toISOString().split('T')[0], // Calculate from age if needed
             customerId: currentUser.id
         };
         
         let petId;
         const existingPets = await fetch(`${API_BASE_URL}/pets/owner/${currentUser.id}`).then(r => r.json());
-        const existingPet = existingPets.find(p => p.name === petData.name);
+        const existingPet = existingPets.find(p => (p.petFullName || p.PetFullName) === petData.petFullName);
         
         if (existingPet) {
-            petId = existingPet.id;
+            petId = existingPet.petId || existingPet.PetId;
         } else {
             const petResponse = await fetch(`${API_BASE_URL}/pets`, {
                 method: 'POST',
@@ -324,17 +374,16 @@ document.getElementById('booking-form')?.addEventListener('submit', async (e) =>
                 body: JSON.stringify(petData)
             });
             const pet = await petResponse.json();
-            petId = pet.id;
+            petId = pet.petId || pet.PetId;
         }
         
         // Create booking
         const bookingData = {
-            customerId: currentUser.id,
             petId: petId,
             classId: parseInt(document.getElementById('session-type').value),
-            sessionDateTime: new Date(document.getElementById('session-datetime').value).toISOString(),
+            bookingDate: new Date().toISOString().split('T')[0],
             status: 'Pending',
-            notes: document.getElementById('booking-notes').value || ''
+            paymentMethod: 'Credit Card' // Default, could add to form
         };
         
         const bookingResponse = await fetch(`${API_BASE_URL}/bookings`, {
@@ -381,19 +430,33 @@ async function loadBookings() {
                 return;
             }
             
-            bookingsList.innerHTML = bookings.map(booking => `
+            bookingsList.innerHTML = bookings.map(booking => {
+                const pet = booking.pet || booking.Pet || {};
+                const classItem = booking.class || booking.Class || {};
+                const trainer = classItem.trainer?.employee || classItem.Trainer?.Employee || {};
+                const classDate = classItem.date || classItem.Date;
+                const startTime = classItem.startTime || classItem.StartTime;
+                const endTime = classItem.endTime || classItem.EndTime;
+                const duration = startTime && endTime 
+                    ? Math.round((new Date('2000-01-01T' + endTime) - new Date('2000-01-01T' + startTime)) / 60000)
+                    : 60;
+                const bookingId = booking.bookingId || booking.BookingId;
+                
+                return `
                 <div class="booking-card">
-                    <h3>${booking.pet.name} - ${booking.class.type}</h3>
-                    <p><strong>Trainer:</strong> ${booking.class.trainer.firstName} ${booking.class.trainer.lastName}</p>
-                    <p><strong>Date & Time:</strong> ${formatDateTime(booking.sessionDateTime)}</p>
-                    <p><strong>Price:</strong> $${booking.class.price}</p>
-                    <p><strong>Duration:</strong> ${booking.class.durationMinutes} minutes</p>
-                    ${booking.notes ? `<p><strong>Notes:</strong> ${booking.notes}</p>` : ''}
-                    <span class="status-badge status-${booking.status.toLowerCase()}">${booking.status}</span>
-                    ${booking.status === 'Pending' || booking.status === 'Confirmed' ? 
-                        `<button onclick="cancelBooking(${booking.id})" class="btn-danger" style="margin-top: 10px;">Cancel Booking</button>` : ''}
+                    <h3>${pet.petFullName || pet.PetFullName} - ${classItem.className || classItem.ClassName}</h3>
+                    <p><strong>Trainer:</strong> ${trainer.empFName || trainer.EmpFName || ''} ${trainer.empLName || trainer.EmpLName || ''}</p>
+                    <p><strong>Date:</strong> ${new Date(classDate).toLocaleDateString()}</p>
+                    <p><strong>Time:</strong> ${startTime} - ${endTime}</p>
+                    <p><strong>Price:</strong> $${classItem.price || classItem.Price}</p>
+                    <p><strong>Duration:</strong> ${duration} minutes</p>
+                    <p><strong>Payment Method:</strong> ${booking.paymentMethod || booking.PaymentMethod}</p>
+                    <span class="status-badge status-${(booking.status || booking.Status || '').toLowerCase()}">${booking.status || booking.Status}</span>
+                    ${(booking.status || booking.Status) === 'Pending' || (booking.status || booking.Status) === 'Confirmed' ? 
+                        `<button onclick="cancelBooking(${bookingId})" class="btn-danger" style="margin-top: 10px;">Cancel Booking</button>` : ''}
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     } catch (error) {
         console.error('Error loading bookings:', error);
@@ -404,6 +467,7 @@ async function cancelBooking(bookingId) {
     if (!confirm('Are you sure you want to cancel this booking?')) return;
     
     try {
+        // Use the cancel endpoint
         const response = await fetch(`${API_BASE_URL}/bookings/${bookingId}/cancel`, {
             method: 'PUT'
         });
@@ -412,7 +476,8 @@ async function cancelBooking(bookingId) {
             showMessage('Booking cancelled successfully', 'success');
             loadBookings();
         } else {
-            showMessage('Failed to cancel booking', 'error');
+            const errorData = await response.json().catch(() => ({}));
+            showMessage(errorData.message || 'Failed to cancel booking', 'error');
         }
     } catch (error) {
         showMessage('Error cancelling booking', 'error');
@@ -434,14 +499,24 @@ async function loadPets() {
                 return;
             }
             
-            petsList.innerHTML = pets.map(pet => `
+            petsList.innerHTML = pets.map(pet => {
+                const petName = pet.petFullName || pet.PetFullName;
+                const species = pet.species || pet.Species;
+                const breed = pet.breed || pet.Breed;
+                const gender = pet.gender || pet.Gender;
+                const birthDate = pet.birthDate || pet.BirthDate;
+                const age = birthDate ? Math.floor((new Date() - new Date(birthDate)) / (365.25 * 24 * 60 * 60 * 1000)) : 0;
+                
+                return `
                 <div class="pet-card">
-                    <h3>${pet.name}</h3>
-                    <p><strong>Species:</strong> ${pet.species}</p>
-                    <p><strong>Breed:</strong> ${pet.breed}</p>
-                    <p><strong>Age:</strong> ${pet.age} years</p>
+                    <h3>${petName}</h3>
+                    <p><strong>Species:</strong> ${species}</p>
+                    <p><strong>Breed:</strong> ${breed}</p>
+                    <p><strong>Gender:</strong> ${gender}</p>
+                    <p><strong>Age:</strong> ${age} years</p>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     } catch (error) {
         console.error('Error loading pets:', error);
@@ -467,10 +542,23 @@ function showAddPetForm() {
 
 async function addPet(petData) {
     try {
+        // Calculate birthDate from age if needed
+        if (!petData.birthDate && petData.age) {
+            const birthYear = new Date().getFullYear() - petData.age;
+            petData.birthDate = `${birthYear}-01-01`;
+        }
+        
         const response = await fetch(`${API_BASE_URL}/pets`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(petData)
+            body: JSON.stringify({
+                petFullName: petData.name,
+                species: petData.species,
+                breed: petData.breed || 'Unknown',
+                gender: petData.gender || 'M',
+                birthDate: petData.birthDate || new Date().toISOString().split('T')[0],
+                customerId: petData.customerId
+            })
         });
         
         if (response.ok) {
@@ -493,10 +581,11 @@ async function loadProfile() {
         const data = await response.json();
         const user = data.user;
         
-        document.getElementById('profile-firstname').value = user.firstName;
-        document.getElementById('profile-lastname').value = user.lastName;
-        document.getElementById('profile-email').value = user.email;
-        document.getElementById('profile-phone').value = user.phone || '';
+        document.getElementById('profile-firstname').value = user.custFName || user.CustFName || '';
+        document.getElementById('profile-lastname').value = user.custLName || user.CustLName || '';
+        document.getElementById('profile-email').value = user.custEmail || user.CustEmail || '';
+        document.getElementById('profile-phone').value = user.custPhoneNum || user.CustPhoneNum || '';
+        document.getElementById('profile-address').value = user.address || user.Address || '';
     } catch (error) {
         console.error('Error loading profile:', error);
     }
@@ -510,10 +599,11 @@ async function updateProfile(event) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                firstName: document.getElementById('profile-firstname').value,
-                lastName: document.getElementById('profile-lastname').value,
-                email: document.getElementById('profile-email').value,
-                phone: document.getElementById('profile-phone').value,
+                custFName: document.getElementById('profile-firstname').value,
+                custLName: document.getElementById('profile-lastname').value,
+                custEmail: document.getElementById('profile-email').value,
+                custPhoneNum: document.getElementById('profile-phone').value,
+                address: document.getElementById('profile-address').value,
                 password: document.getElementById('profile-password').value || null
             })
         });
@@ -523,9 +613,17 @@ async function updateProfile(event) {
             // Reload user data
             const profileResponse = await fetch(`${API_BASE_URL}/auth/profile/${currentUser.id}`);
             const data = await profileResponse.json();
-            currentUser = { ...currentUser, ...data.user };
+            const updatedUser = data.user;
+            currentUser = { 
+                ...currentUser, 
+                ...updatedUser,
+                id: updatedUser.CustomerId || updatedUser.customerId || currentUser.id,
+                firstName: updatedUser.CustFName || updatedUser.custFName || currentUser.firstName,
+                lastName: updatedUser.CustLName || updatedUser.custLName || currentUser.lastName,
+                email: updatedUser.CustEmail || updatedUser.custEmail || currentUser.email
+            };
             localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            document.getElementById('user-name').textContent = `${currentUser.firstName} ${currentUser.lastName} (${currentUser.role})`;
+            document.getElementById('user-name').textContent = `${currentUser.firstName} ${currentUser.lastName} (Customer)`;
         } else {
             showMessage('Failed to update profile', 'error');
         }
@@ -539,7 +637,16 @@ function showTrainerTab(tab) {
     document.querySelectorAll('.trainer-tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.trainer-content').forEach(content => content.classList.remove('active'));
     
-    event.target.classList.add('active');
+    // Find and activate the correct button
+    const buttons = document.querySelectorAll('.trainer-tab-btn');
+    if (tab === 'my-classes') {
+        buttons[0]?.classList.add('active');
+    } else if (tab === 'bookings') {
+        buttons[1]?.classList.add('active');
+    } else if (tab === 'manage-classes') {
+        buttons[2]?.classList.add('active');
+    }
+    
     document.getElementById(`${tab}-tab`).classList.add('active');
     
     if (tab === 'my-classes') {
@@ -550,10 +657,21 @@ function showTrainerTab(tab) {
 }
 
 async function loadTrainerClasses() {
-    if (!currentUser || (!currentUser.TrainerId && !currentUser.trainerId)) return;
+    if (!currentUser) return;
     
+    // Check if user is a trainer by checking if they have an employeeId that matches a trainer
     try {
-        const trainerId = currentUser.TrainerId || currentUser.trainerId;
+        // First, try to get trainer info for the current user
+        const trainersResponse = await fetch(`${API_BASE_URL}/trainers`);
+        const trainers = await trainersResponse.json();
+        const trainer = trainers.find(t => (t.employeeId || t.EmployeeId) === (currentUser.employeeId || currentUser.EmployeeId || currentUser.id));
+        
+        if (!trainer) {
+            console.log('User is not a trainer');
+            return;
+        }
+        
+        const trainerId = trainer.employeeId || trainer.EmployeeId || currentUser.id;
         const response = await fetch(`${API_BASE_URL}/trainerclasses/trainer/${trainerId}`);
         const classes = await response.json();
         
@@ -564,17 +682,29 @@ async function loadTrainerClasses() {
                 return;
             }
             
-            list.innerHTML = classes.map(session => `
+            list.innerHTML = classes.map(session => {
+                const classId = session.classId || session.ClassId;
+                const className = session.className || session.ClassName;
+                const description = session.description || session.Description;
+                const price = session.price || session.Price;
+                const startTime = session.startTime || session.StartTime;
+                const endTime = session.endTime || session.EndTime;
+                const duration = startTime && endTime 
+                    ? Math.round((new Date('2000-01-01T' + endTime) - new Date('2000-01-01T' + startTime)) / 60000)
+                    : 60;
+                
+                return `
                 <div class="class-card">
-                    <h3>${session.type}</h3>
-                    <p><strong>Description:</strong> ${session.description}</p>
-                    <p><strong>Price:</strong> $${session.price}</p>
-                    <p><strong>Duration:</strong> ${session.durationMinutes} minutes</p>
-                    <p><strong>Bookings:</strong> ${session.bookings?.length || 0}</p>
-                    <button onclick="editClass(${session.id})" class="btn-secondary" style="margin-top: 10px;">Edit</button>
-                    <button onclick="deleteClass(${session.id})" class="btn-danger" style="margin-top: 10px;">Delete</button>
+                    <h3>${className}</h3>
+                    <p><strong>Description:</strong> ${description}</p>
+                    <p><strong>Price:</strong> $${price}</p>
+                    <p><strong>Duration:</strong> ${duration} minutes</p>
+                    <p><strong>Bookings:</strong> ${session.bookings?.length || session.Bookings?.length || 0}</p>
+                    <button onclick="editClass(${classId})" class="btn-secondary" style="margin-top: 10px;">Edit</button>
+                    <button onclick="deleteClass(${classId})" class="btn-danger" style="margin-top: 10px;">Delete</button>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     } catch (error) {
         console.error('Error loading trainer classes:', error);
@@ -582,10 +712,20 @@ async function loadTrainerClasses() {
 }
 
 async function loadTrainerBookings() {
-    if (!currentUser || (!currentUser.TrainerId && !currentUser.trainerId)) return;
+    if (!currentUser) return;
     
     try {
-        const trainerId = currentUser.TrainerId || currentUser.trainerId;
+        // Check if user is a trainer
+        const trainersResponse = await fetch(`${API_BASE_URL}/trainers`);
+        const trainers = await trainersResponse.json();
+        const trainer = trainers.find(t => (t.employeeId || t.EmployeeId) === (currentUser.employeeId || currentUser.EmployeeId || currentUser.id));
+        
+        if (!trainer) {
+            console.log('User is not a trainer');
+            return;
+        }
+        
+        const trainerId = trainer.employeeId || trainer.EmployeeId || currentUser.id;
         const response = await fetch(`${API_BASE_URL}/trainerclasses/trainer/${trainerId}/bookings/upcoming`);
         const bookings = await response.json();
         
@@ -596,18 +736,29 @@ async function loadTrainerBookings() {
                 return;
             }
             
-            list.innerHTML = bookings.map(booking => `
+            list.innerHTML = bookings.map(booking => {
+                const pet = booking.pet || booking.Pet || {};
+                const classItem = booking.class || booking.Class || {};
+                const customer = pet.customer || pet.Customer || {};
+                const bookingId = booking.bookingId || booking.BookingId;
+                const status = booking.status || booking.Status || 'Pending';
+                const classDate = classItem.date || classItem.Date;
+                const startTime = classItem.startTime || classItem.StartTime;
+                const endTime = classItem.endTime || classItem.EndTime;
+                
+                return `
                 <div class="booking-card">
-                    <h3>${booking.pet.name} - ${booking.class.type}</h3>
-                    <p><strong>Customer:</strong> ${booking.customer.firstName} ${booking.customer.lastName}</p>
-                    <p><strong>Date & Time:</strong> ${formatDateTime(booking.sessionDateTime)}</p>
-                    <p><strong>Status:</strong> <span class="status-badge status-${booking.status.toLowerCase()}">${booking.status}</span></p>
-                    ${booking.notes ? `<p><strong>Notes:</strong> ${booking.notes}</p>` : ''}
-                    ${booking.status === 'Pending' ? 
-                        `<button onclick="confirmBooking(${booking.id})" class="btn-primary" style="margin-top: 10px;">Confirm</button>` : ''}
-                    <button onclick="updateBookingStatus(${booking.id}, 'Cancelled')" class="btn-danger" style="margin-top: 10px;">Cancel</button>
+                    <h3>${pet.petFullName || pet.PetFullName} - ${classItem.className || classItem.ClassName}</h3>
+                    <p><strong>Customer:</strong> ${customer.custFName || customer.CustFName || ''} ${customer.custLName || customer.CustLName || ''}</p>
+                    <p><strong>Date:</strong> ${new Date(classDate).toLocaleDateString()}</p>
+                    <p><strong>Time:</strong> ${startTime} - ${endTime}</p>
+                    <p><strong>Status:</strong> <span class="status-badge status-${status.toLowerCase()}">${status}</span></p>
+                    ${status === 'Pending' ? 
+                        `<button onclick="confirmBooking(${bookingId})" class="btn-primary" style="margin-top: 10px;">Confirm</button>` : ''}
+                    <button onclick="updateBookingStatus(${bookingId}, 'Cancelled')" class="btn-danger" style="margin-top: 10px;">Cancel</button>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         }
     } catch (error) {
         console.error('Error loading trainer bookings:', error);
@@ -651,11 +802,17 @@ async function editClass(classId) {
         const response = await fetch(`${API_BASE_URL}/sessions/${classId}`);
         const session = await response.json();
         
-        document.getElementById('class-id').value = session.id;
-        document.getElementById('class-type').value = session.type;
-        document.getElementById('class-price').value = session.price;
-        document.getElementById('class-duration').value = session.durationMinutes;
-        document.getElementById('class-description').value = session.description;
+        document.getElementById('class-id').value = session.classId || session.ClassId;
+        document.getElementById('class-name').value = session.className || session.ClassName;
+        document.getElementById('class-type').value = session.classType || session.ClassType || 'Group';
+        document.getElementById('class-difficulty').value = session.difficultyLevel || session.DifficultyLevel || 'Beginner';
+        document.getElementById('class-price').value = session.price || session.Price;
+        document.getElementById('class-date').value = session.date ? new Date(session.date || session.Date).toISOString().split('T')[0] : '';
+        document.getElementById('class-start-time').value = session.startTime || session.StartTime || '10:00';
+        document.getElementById('class-end-time').value = session.endTime || session.EndTime || '11:00';
+        document.getElementById('class-location').value = session.location || session.Location || '';
+        document.getElementById('class-capacity').value = session.capacity || session.Capacity || 10;
+        document.getElementById('class-description').value = session.description || session.Description;
         
         showTrainerTab('manage-classes');
         document.querySelectorAll('.trainer-tab-btn')[2].classList.add('active');
@@ -684,27 +841,51 @@ async function deleteClass(classId) {
 async function saveClass(event) {
     event.preventDefault();
     
-    if (!currentUser || (!currentUser.TrainerId && !currentUser.trainerId)) {
-        showMessage('You must be a trainer to create classes', 'error');
+    if (!currentUser) {
+        showMessage('You must be logged in to create classes', 'error');
         return;
     }
     
     try {
-        const trainerId = currentUser.TrainerId || currentUser.trainerId;
+        // Check if user is a trainer
+        const trainersResponse = await fetch(`${API_BASE_URL}/trainers`);
+        const trainers = await trainersResponse.json();
+        const trainer = trainers.find(t => (t.employeeId || t.EmployeeId) === (currentUser.employeeId || currentUser.EmployeeId || currentUser.id));
+        
+        if (!trainer) {
+            showMessage('You must be a trainer to create classes', 'error');
+            return;
+        }
+        
+        const trainerId = trainer.employeeId || trainer.EmployeeId || currentUser.id;
+        const classId = document.getElementById('class-id').value;
+        
+        // Get time values and convert to TimeSpan format (HH:mm:ss)
+        const startTimeInput = document.getElementById('class-start-time').value;
+        const endTimeInput = document.getElementById('class-end-time').value;
+        const startTime = startTimeInput ? startTimeInput + ':00' : '10:00:00';
+        const endTime = endTimeInput ? endTimeInput + ':00' : '11:00:00';
+        
         const classData = {
-            id: document.getElementById('class-id').value ? parseInt(document.getElementById('class-id').value) : 0,
-            type: document.getElementById('class-type').value,
+            classId: classId ? parseInt(classId) : 0,
+            className: document.getElementById('class-name').value,
             description: document.getElementById('class-description').value,
+            classType: document.getElementById('class-type').value,
+            difficultyLevel: document.getElementById('class-difficulty').value,
+            date: document.getElementById('class-date').value || new Date().toISOString().split('T')[0],
             price: parseFloat(document.getElementById('class-price').value),
-            durationMinutes: parseInt(document.getElementById('class-duration').value),
-            trainerId: trainerId
+            location: document.getElementById('class-location').value,
+            capacity: parseInt(document.getElementById('class-capacity').value),
+            startTime: startTime,
+            endTime: endTime,
+            employeeId: trainerId
         };
         
-        const url = classData.id > 0 
-            ? `${API_BASE_URL}/sessions/${classData.id}`
+        const url = classData.classId > 0 
+            ? `${API_BASE_URL}/sessions/${classData.classId}`
             : `${API_BASE_URL}/sessions`;
         
-        const method = classData.id > 0 ? 'PUT' : 'POST';
+        const method = classData.classId > 0 ? 'PUT' : 'POST';
         
         const response = await fetch(url, {
             method: method,
@@ -716,10 +897,13 @@ async function saveClass(event) {
             showMessage('Class saved successfully', 'success');
             resetClassForm();
             loadTrainerClasses();
+            showTrainerTab('my-classes');
         } else {
-            showMessage('Failed to save class', 'error');
+            const errorData = await response.json().catch(() => ({}));
+            showMessage(errorData.message || 'Failed to save class', 'error');
         }
     } catch (error) {
+        console.error('Error saving class:', error);
         showMessage('Error saving class', 'error');
     }
 }
@@ -727,6 +911,13 @@ async function saveClass(event) {
 function resetClassForm() {
     document.getElementById('class-form').reset();
     document.getElementById('class-id').value = '';
+    // Set default values
+    document.getElementById('class-type').value = 'Group';
+    document.getElementById('class-difficulty').value = 'Beginner';
+    document.getElementById('class-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('class-start-time').value = '10:00';
+    document.getElementById('class-end-time').value = '11:00';
+    document.getElementById('class-capacity').value = '10';
 }
 
 // Utility Functions

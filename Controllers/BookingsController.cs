@@ -27,16 +27,17 @@ public class BookingsController : ControllerBase
         [FromQuery] DateTime? endDate)
     {
         var query = _context.Bookings
-            .Include(b => b.Customer)
             .Include(b => b.Pet)
+                .ThenInclude(p => p.Customer)
             .Include(b => b.Class)
-                .ThenInclude(s => s.Trainer)
+                .ThenInclude(c => c.Trainer)
+                    .ThenInclude(t => t.Employee)
             .AsQueryable();
 
-        // Filter by customer
+        // Filter by customer (through pet)
         if (customerId.HasValue)
         {
-            query = query.Where(b => b.CustomerId == customerId.Value);
+            query = query.Where(b => b.Pet.CustomerId == customerId.Value);
         }
 
         // Filter by status
@@ -45,14 +46,14 @@ public class BookingsController : ControllerBase
             query = query.Where(b => b.Status == status);
         }
 
-        // Filter by date range
+        // Filter by date range (using Class.Date)
         if (startDate.HasValue)
         {
-            query = query.Where(b => b.SessionDateTime >= startDate.Value);
+            query = query.Where(b => b.Class.Date >= startDate.Value.Date);
         }
         if (endDate.HasValue)
         {
-            query = query.Where(b => b.SessionDateTime <= endDate.Value);
+            query = query.Where(b => b.Class.Date <= endDate.Value.Date);
         }
 
         // Sorting
@@ -61,10 +62,10 @@ public class BookingsController : ControllerBase
 
         query = sortBy switch
         {
-            "date" => sortOrder == "desc" ? query.OrderByDescending(b => b.SessionDateTime) : query.OrderBy(b => b.SessionDateTime),
+            "date" => sortOrder == "desc" ? query.OrderByDescending(b => b.Class.Date).ThenByDescending(b => b.Class.StartTime) : query.OrderBy(b => b.Class.Date).ThenBy(b => b.Class.StartTime),
             "status" => sortOrder == "desc" ? query.OrderByDescending(b => b.Status) : query.OrderBy(b => b.Status),
             "price" => sortOrder == "desc" ? query.OrderByDescending(b => b.Class.Price) : query.OrderBy(b => b.Class.Price),
-            _ => query.OrderByDescending(b => b.SessionDateTime)
+            _ => query.OrderByDescending(b => b.Class.Date).ThenByDescending(b => b.Class.StartTime)
         };
 
         return await query.ToListAsync();
@@ -75,11 +76,12 @@ public class BookingsController : ControllerBase
     public async Task<ActionResult<Booking>> GetBooking(int id)
     {
         var booking = await _context.Bookings
-            .Include(b => b.Customer)
             .Include(b => b.Pet)
+                .ThenInclude(p => p.Customer)
             .Include(b => b.Class)
                 .ThenInclude(s => s.Trainer)
-            .FirstOrDefaultAsync(b => b.Id == id);
+                    .ThenInclude(t => t.Employee)
+            .FirstOrDefaultAsync(b => b.BookingId == id);
 
         if (booking == null)
         {
@@ -93,18 +95,20 @@ public class BookingsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Booking>> CreateBooking(Booking booking)
     {
-        booking.BookingDate = DateTime.Now;
+        booking.BookingDate = DateTime.Now.Date;
+        booking.Status = booking.Status ?? "Pending";
+        booking.PaymentMethod = booking.PaymentMethod ?? "Credit Card";
         _context.Bookings.Add(booking);
         await _context.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(GetBooking), new { id = booking.Id }, booking);
+        return CreatedAtAction(nameof(GetBooking), new { id = booking.BookingId }, booking);
     }
 
     // PUT: api/bookings/5
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateBooking(int id, Booking booking)
     {
-        if (id != booking.Id)
+        if (id != booking.BookingId)
         {
             return BadRequest();
         }
@@ -177,7 +181,7 @@ public class BookingsController : ControllerBase
 
     private bool BookingExists(int id)
     {
-        return _context.Bookings.Any(e => e.Id == id);
+        return _context.Bookings.Any(e => e.BookingId == id);
     }
 }
 

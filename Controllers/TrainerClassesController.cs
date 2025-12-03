@@ -22,11 +22,11 @@ public class TrainerClassesController : ControllerBase
     {
         return await _context.Classes
             .Include(s => s.Trainer)
+                .ThenInclude(t => t.Employee)
             .Include(s => s.Bookings)
                 .ThenInclude(b => b.Pet)
-            .Include(s => s.Bookings)
-                .ThenInclude(b => b.Customer)
-            .Where(s => s.TrainerId == trainerId)
+                    .ThenInclude(p => p.Customer)
+            .Where(s => s.EmployeeId == trainerId)
             .ToListAsync();
     }
 
@@ -35,12 +35,13 @@ public class TrainerClassesController : ControllerBase
     public async Task<ActionResult<IEnumerable<Booking>>> GetTrainerBookings(int trainerId)
     {
         return await _context.Bookings
-            .Include(b => b.Customer)
             .Include(b => b.Pet)
+                .ThenInclude(p => p.Customer)
             .Include(b => b.Class)
                 .ThenInclude(s => s.Trainer)
-            .Where(b => b.Class.TrainerId == trainerId)
-            .OrderByDescending(b => b.SessionDateTime)
+                    .ThenInclude(t => t.Employee)
+            .Where(b => b.Class.EmployeeId == trainerId)
+            .OrderByDescending(b => b.BookingDate)
             .ToListAsync();
     }
 
@@ -49,14 +50,16 @@ public class TrainerClassesController : ControllerBase
     public async Task<ActionResult<IEnumerable<Booking>>> GetUpcomingBookings(int trainerId)
     {
         return await _context.Bookings
-            .Include(b => b.Customer)
             .Include(b => b.Pet)
+                .ThenInclude(p => p.Customer)
             .Include(b => b.Class)
                 .ThenInclude(s => s.Trainer)
-            .Where(b => b.Class.TrainerId == trainerId && 
-                       b.SessionDateTime >= DateTime.Now && 
+                    .ThenInclude(t => t.Employee)
+            .Where(b => b.Class.EmployeeId == trainerId && 
+                       b.Class.Date >= DateTime.Now.Date && 
                        b.Status != "Cancelled")
-            .OrderBy(b => b.SessionDateTime)
+            .OrderBy(b => b.Class.Date)
+            .ThenBy(b => b.Class.StartTime)
             .ToListAsync();
     }
 
@@ -71,11 +74,6 @@ public class TrainerClassesController : ControllerBase
         }
 
         booking.Status = request.Status;
-        if (!string.IsNullOrEmpty(request.Notes))
-        {
-            booking.Notes = request.Notes;
-        }
-
         await _context.SaveChangesAsync();
 
         return Ok(new { message = "Booking status updated successfully" });

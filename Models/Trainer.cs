@@ -2,13 +2,9 @@ namespace MIS330_GroupProject1.Models;
 
 public class Trainer
 {
-    public int Id { get; set; }
-    public string FirstName { get; set; } = string.Empty;
-    public string LastName { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
-    public string Phone { get; set; } = string.Empty;
-    public string Specialization { get; set; } = string.Empty;
+    public int EmployeeId { get; set; }
+    public int HourlyRate { get; set; }
+    public string Specialities { get; set; } = string.Empty;
+    public Employee Employee { get; set; } = null!;
     public List<Class> Classes { get; set; } = new();
-    public List<Customer> Customers { get; set; } = new();
 }
-

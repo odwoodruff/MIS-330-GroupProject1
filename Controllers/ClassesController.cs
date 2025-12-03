@@ -26,22 +26,26 @@ public class ClassesController : ControllerBase
         [FromQuery] decimal? minPrice,
         [FromQuery] decimal? maxPrice)
     {
-        var query = _context.Classes.Include(s => s.Trainer).AsQueryable();
+        var query = _context.Classes
+            .Include(s => s.Trainer)
+                .ThenInclude(t => t.Employee)
+            .AsQueryable();
 
         // Search filtering
         if (!string.IsNullOrEmpty(search))
         {
             query = query.Where(s => 
-                s.Type.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                s.ClassName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 s.Description.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                s.Trainer.FirstName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                s.Trainer.LastName.Contains(search, StringComparison.OrdinalIgnoreCase));
+                s.ClassType.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                s.Trainer.Employee.EmpFName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                s.Trainer.Employee.EmpLName.Contains(search, StringComparison.OrdinalIgnoreCase));
         }
 
-        // Trainer filtering
+        // Trainer filtering (by employeeId)
         if (trainerId.HasValue)
         {
-            query = query.Where(s => s.TrainerId == trainerId.Value);
+            query = query.Where(s => s.EmployeeId == trainerId.Value);
         }
 
         // Price filtering
@@ -61,9 +65,9 @@ public class ClassesController : ControllerBase
         query = sortBy switch
         {
             "price" => sortOrder == "desc" ? query.OrderByDescending(s => s.Price) : query.OrderBy(s => s.Price),
-            "duration" => sortOrder == "desc" ? query.OrderByDescending(s => s.DurationMinutes) : query.OrderBy(s => s.DurationMinutes),
-            "type" => sortOrder == "desc" ? query.OrderByDescending(s => s.Type) : query.OrderBy(s => s.Type),
-            _ => sortOrder == "desc" ? query.OrderByDescending(s => s.Id) : query.OrderBy(s => s.Id)
+            "duration" => sortOrder == "desc" ? query.OrderByDescending(s => (s.EndTime - s.StartTime).TotalMinutes) : query.OrderBy(s => (s.EndTime - s.StartTime).TotalMinutes),
+            "type" => sortOrder == "desc" ? query.OrderByDescending(s => s.ClassType) : query.OrderBy(s => s.ClassType),
+            _ => sortOrder == "desc" ? query.OrderByDescending(s => s.ClassId) : query.OrderBy(s => s.ClassId)
         };
 
         return await query.ToListAsync();
@@ -75,7 +79,8 @@ public class ClassesController : ControllerBase
     {
         var session = await _context.Classes
             .Include(s => s.Trainer)
-            .FirstOrDefaultAsync(s => s.Id == id);
+                .ThenInclude(t => t.Employee)
+            .FirstOrDefaultAsync(s => s.ClassId == id);
 
         if (session == null)
         {
@@ -92,14 +97,14 @@ public class ClassesController : ControllerBase
         _context.Classes.Add(session);
         await _context.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(GetSession), new { id = session.Id }, session);
+        return CreatedAtAction(nameof(GetSession), new { id = session.ClassId }, session);
     }
 
     // PUT: api/sessions/5
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateSession(int id, Class session)
     {
-        if (id != session.Id)
+        if (id != session.ClassId)
         {
             return BadRequest();
         }
@@ -144,13 +149,13 @@ public class ClassesController : ControllerBase
     {
         return await _context.Classes
             .Include(s => s.Trainer)
-            .Where(s => s.TrainerId == trainerId)
+            .Where(s => s.EmployeeId == trainerId)
             .ToListAsync();
     }
 
     private bool SessionExists(int id)
     {
-        return _context.Classes.Any(e => e.Id == id);
+        return _context.Classes.Any(e => e.ClassId == id);
     }
 }
 
